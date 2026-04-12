@@ -46,6 +46,8 @@ def scrape_listings(query: str, pages: int = 3) -> list[dict]:
                 })
             
             time.sleep(random.uniform(2, 5))
+        else:
+            print("Nie udalo sie polaczyc.")
     return results
 
 # def scrape_detail(url: str) -> dict:
