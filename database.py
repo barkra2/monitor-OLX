@@ -1,6 +1,7 @@
 import sqlite3
 from scraper import scrape_listings
 import re
+import datetime
 
 def parse_price(raw: str) -> float | None:
     if not raw:
@@ -20,6 +21,7 @@ with sqlite3.connect("baza_danych.db") as conn:
                     tytul TEXT NOT NULL,
                     cena FLOAT,
                     lokalizacja TEXT,
+                    data TEXT, 
                     url TEXT NOT NULL
                 )
                 """)
@@ -28,9 +30,15 @@ with sqlite3.connect("baza_danych.db") as conn:
     for item in listings:
         title = item["title"]
         price = parse_price(item["price"])
-        location = item["location"]
+        location_and_date = str(item["location"])
         url = item["url"]
+        location = location_and_date[:location_and_date.rfind("-")]
+        date = location_and_date[location_and_date.rfind("-")+2:]
         if price is not None and price > 400:
-            cursor.execute("INSERT INTO produkty (tytul, cena, lokalizacja, url) VALUES (?, ?, ?, ?)", (title, price, location, url))
+            if date.find("Dzisiaj") > -1:
+                date = f"{date[-5:]} {datetime.date.today()}"
+            # if date.find("Odświeżono"):
+            #     date = date[date.find("a "):]
+            cursor.execute("INSERT INTO produkty (tytul, cena, lokalizacja, data, url) VALUES (?, ?, ?, ?, ?)", (title, price, location, date, url))
 
     conn.commit()
