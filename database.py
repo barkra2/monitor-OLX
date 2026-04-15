@@ -1,7 +1,7 @@
-import sqlite3
+import sqlite3, re, datetime, logging
 from scraper import scrape_listings
-import re
-import datetime
+
+logger = logging.getLogger(__name__)
 
 def parse_price(raw: str) -> float | None:
     if not raw:
@@ -36,33 +36,34 @@ def parse_date(raw: str):
             data = f"{data[8:]}-{data[5:7]}-{data[:4]}"
     return data
             
+def stworz_baze_danych():
+    with sqlite3.connect("baza_danych.db") as conn:
 
-with sqlite3.connect("baza_danych.db") as conn:
+        cursor = conn.cursor()
+        logger.info("Tworze / nadpisuje tabele w bazie danych...")
+        cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS produkty (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        tytul TEXT NOT NULL,
+                        cena FLOAT,
+                        lokalizacja TEXT,
+                        data DATE, 
+                        url TEXT NOT NULL
+                    )
+                    """)
+        
+        listings = scrape_listings("iphone-14", 2)
+        logger.debug(f"Przetwarzam {len(listings)} rekordow...")
+        for item in listings:
+            title = item["title"]
+            price = parse_price(item["price"])
+            location_and_date = str(item["location"])
+            url = item["url"]
+            location = location_and_date[:location_and_date.rfind("-")]
+            date = location_and_date[location_and_date.rfind("-")+2:]
+            if price is not None and price > 400:
+                date = parse_date(date)
 
-    cursor = conn.cursor()
+                cursor.execute("INSERT INTO produkty (tytul, cena, lokalizacja, data, url) VALUES (?, ?, ?, ?, ?)", (title, price, location, date, url))
 
-    cursor.execute("""
-                CREATE TABLE IF NOT EXISTS produkty (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    tytul TEXT NOT NULL,
-                    cena FLOAT,
-                    lokalizacja TEXT,
-                    data DATE, 
-                    url TEXT NOT NULL
-                )
-                """)
-    
-    listings = scrape_listings("iphone-14", 2)
-    for item in listings:
-        title = item["title"]
-        price = parse_price(item["price"])
-        location_and_date = str(item["location"])
-        url = item["url"]
-        location = location_and_date[:location_and_date.rfind("-")]
-        date = location_and_date[location_and_date.rfind("-")+2:]
-        if price is not None and price > 400:
-            date = parse_date(date)
-
-            cursor.execute("INSERT INTO produkty (tytul, cena, lokalizacja, data, url) VALUES (?, ?, ?, ?, ?)", (title, price, location, date, url))
-
-    conn.commit()
+        conn.commit()

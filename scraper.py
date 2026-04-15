@@ -1,6 +1,8 @@
 from curl_cffi import requests
 from bs4 import BeautifulSoup as bs
-import time, random
+import time, random, logging
+
+logger = logging.getLogger(__name__)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:149.0) Gecko/20100101 Firefox/149.0" ,
@@ -12,6 +14,7 @@ HEADERS = {
 }
 
 def get_page(url: str):
+    logger.info("Tworze sesje...")
     session = requests.Session(impersonate="firefox")
     for attempt in range(3):
         try:
@@ -19,17 +22,19 @@ def get_page(url: str):
             response.raise_for_status()
             return bs(response.text, "html.parser")
         except requests.exceptions.Timeout:
-            print(f"Timeout, proba {attempt+1}/3...")
+            logger.warning(f"Timeout, proba {attempt+1}/3...")
             time.sleep(5)
+    logger.error("Nie udalo sie polaczyc z OLX.")
     return None
 
 def scrape_listings(query: str, pages: int = 3) -> list[dict]:
     results = []
-
+    logger.info("Pozyskuje HTML...")
     for page in range(1, pages + 1):
         url = f"https://www.olx.pl/oferty/q-{query}/?page={page}"
         soup = get_page(url)
         if soup:
+            logger.info("Zbieram informacje na temat {query} ze strony nr {pages}")
             cards = soup.select("[data-cy='l-card']")
             
             for card in cards:
@@ -47,7 +52,7 @@ def scrape_listings(query: str, pages: int = 3) -> list[dict]:
             
             time.sleep(random.uniform(2, 5))
         else:
-            print("Nie udalo sie polaczyc.")
+            logger.error("Nie udalo sie zebrac informacji.")
     return results
 
 # def scrape_detail(url: str) -> dict:
