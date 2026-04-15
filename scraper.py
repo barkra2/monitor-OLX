@@ -24,7 +24,7 @@ def get_page(url: str):
         except requests.exceptions.Timeout:
             logger.warning(f"Timeout, proba {attempt+1}/3...")
             time.sleep(5)
-    logger.error("Nie udalo sie polaczyc z OLX.")
+    logger.error("Nie udalo sie polaczyc z OLX.", exc_info=True)
     return None
 
 def scrape_listings(query: str, pages: int = 3) -> list[dict]:
@@ -52,7 +52,7 @@ def scrape_listings(query: str, pages: int = 3) -> list[dict]:
             
             time.sleep(random.uniform(2, 5))
         else:
-            logger.error("Nie udalo sie zebrac informacji.")
+            logger.error("Nie udalo sie zebrac informacji.", exc_info=True)
     return results
 
 # def scrape_detail(url: str) -> dict:
