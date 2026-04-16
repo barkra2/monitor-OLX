@@ -1,7 +1,9 @@
-import sqlite3, re, datetime, logging
+import sqlite3, re, datetime, logging, pandas as pd
 from scraper import scrape_listings
 
 logger = logging.getLogger(__name__)
+
+# --- Parsery (bez zmian) ---
 
 def parse_price(raw: str) -> float | None:
     if not raw:
@@ -13,57 +15,115 @@ def parse_price(raw: str) -> float | None:
 
 def parse_date(raw: str):
     DATY = {
-        "stycznia": "01",
-        "lutego": "02",
-        "marca": "03",
-        "kwietnia": "04",
-        "maja": "05",
-        "czerwca": "06",
-        "lipca": "07",
-        "sierpnia": "08",
-        "września": "09",
-        "października": "10",
-        "listopada": "11",
-        "grudnia": "12"
+        "stycznia": "01", "lutego": "02", "marca": "03",
+        "kwietnia": "04", "maja": "05", "czerwca": "06",
+        "lipca": "07", "sierpnia": "08", "września": "09",
+        "października": "10", "listopada": "11", "grudnia": "12"
     }
-    data = ""
-    for i in DATY:
-        if raw.find(i) > -1:
-            data = raw.replace(i, DATY[i])
-            data = data[-10:].replace(" ", "-")
-        if raw.find("Dzisiaj") > -1 or raw.find("dzisiaj") > -1:
-            data = str(datetime.date.today())
-            data = f"{data[8:]}-{data[5:7]}-{data[:4]}"
-    return data
-            
-def stworz_baze_danych():
+    for miesiac, numer in DATY.items():
+        if miesiac in raw:
+            data = raw.replace(miesiac, numer)
+            return data[-10:].replace(" ", "-")
+    if "dzisiaj" in raw.lower():
+        d = str(datetime.date.today())
+        return f"{d[8:]}-{d[5:7]}-{d[:4]}"
+    return raw
+
+# --- Baza danych ---
+
+def stworz_baze(conn):
+    """Tworzy tabelę jeśli nie istnieje."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS produkty (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            tytul             TEXT NOT NULL,
+            cena              REAL,
+            cena_poprzednia   REAL,
+            lokalizacja       TEXT,
+            data_dodania      DATE,
+            url               TEXT NOT NULL UNIQUE,  -- <-- UNIQUE, URL = identyfikator
+            status            TEXT DEFAULT 'nowe'    -- 'nowe' | 'wzrost' | 'spadek' | 'bez_zmian'
+        )
+    """)
+    conn.commit()
+
+def aktualizuj_baze(keyword: str, strony: int, conn):
+    """
+    Scrapuje ogłoszenia i aktualizuje bazę.
+    Zwraca DataFrame z wynikami (ze statusem) do wyświetlenia w Streamlit.
+    """
+    listings = scrape_listings(keyword, strony)
+    logger.debug(f"Pobrano {len(listings)} rekordów ze scrapera")
+
+    wiersze = []
+    for item in listings:
+        price = parse_price(item["price"])
+        if price is None or price <= 400:
+            continue
+
+        loc_raw = str(item["location"])
+        location = loc_raw[:loc_raw.rfind("-")].strip()
+        date_raw = loc_raw[loc_raw.rfind("-") + 2:].strip()
+
+        wiersze.append({
+            "tytul":       item["title"],
+            "cena":        price,
+            "lokalizacja": location,
+            "data_dodania": parse_date(date_raw),
+            "url":         item["url"],
+        })
+
+    if not wiersze:
+        return pd.DataFrame()
+
+    df_nowe = pd.DataFrame(wiersze)
+
+    # Pobierz aktualny stan bazy
+    df_baza = pd.read_sql("SELECT url, cena FROM produkty", conn)
+
+    # Łącz po URL – sprawdź co jest nowe, co się zmieniło
+    df = df_nowe.merge(df_baza, on="url", how="left", suffixes=("", "_stara"))
+
+    def _wylicz_status(row):
+        if pd.isna(row["cena_stara"]):
+            return "nowe"
+        if row["cena"] > row["cena_stara"]:
+            return "wzrost"
+        if row["cena"] < row["cena_stara"]:
+            return "spadek"
+        return "bez_zmian"
+
+    df["status"] = df.apply(_wylicz_status, axis=1)
+    df["cena_poprzednia"] = df["cena_stara"]
+
+    # Zapisz do bazy
+    cursor = conn.cursor()
+    for _, row in df.iterrows():
+        if row["status"] == "nowe":
+            cursor.execute("""
+                INSERT OR IGNORE INTO produkty
+                    (tytul, cena, cena_poprzednia, lokalizacja, data_dodania, url, status)
+                VALUES (?, ?, NULL, ?, ?, ?, 'nowe')
+            """, (row["tytul"], row["cena"], row["lokalizacja"], row["data_dodania"], row["url"]))
+
+        elif row["status"] in ("wzrost", "spadek"):
+            cursor.execute("""
+                UPDATE produkty
+                SET cena_poprzednia = cena,
+                    cena            = ?,
+                    status          = ?,
+                    data_dodania    = ?
+                WHERE url = ?
+            """, (row["cena"], row["status"], row["data_dodania"], row["url"]))
+
+    conn.commit()
+    logger.info(f"Zapisano: {(df['status']=='nowe').sum()} nowych, "
+                f"{(df['status']=='wzrost').sum()} wzrostów, "
+                f"{(df['status']=='spadek').sum()} spadków")
+
+    return df[["tytul", "cena", "cena_poprzednia", "lokalizacja", "data_dodania", "url", "status"]]
+
+if __name__ == "__main__":
     with sqlite3.connect("baza_danych.db") as conn:
-
-        cursor = conn.cursor()
-        logger.info("Tworze / nadpisuje tabele w bazie danych...")
-        cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS produkty (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        tytul TEXT NOT NULL,
-                        cena FLOAT,
-                        lokalizacja TEXT,
-                        data DATE, 
-                        url TEXT NOT NULL
-                    )
-                    """)
-        
-        listings = scrape_listings("iphone-14", 2)
-        logger.debug(f"Przetwarzam {len(listings)} rekordow...")
-        for item in listings:
-            title = item["title"]
-            price = parse_price(item["price"])
-            location_and_date = str(item["location"])
-            url = item["url"]
-            location = location_and_date[:location_and_date.rfind("-")]
-            date = location_and_date[location_and_date.rfind("-")+2:]
-            if price is not None and price > 400:
-                date = parse_date(date)
-
-                cursor.execute("INSERT INTO produkty (tytul, cena, lokalizacja, data, url) VALUES (?, ?, ?, ?, ?)", (title, price, location, date, url))
-
-        conn.commit()
+        stworz_baze(conn)
+        aktualizuj_baze("iphone-14", 2, conn)
