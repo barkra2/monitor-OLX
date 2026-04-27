@@ -31,99 +31,103 @@ def parse_date(raw: str):
 
 # --- Baza danych ---
 
-def stworz_baze(conn):
+def stworz_baze(nazwa_db):
     """Tworzy tabelę jeśli nie istnieje."""
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS produkty (
-            id                INTEGER PRIMARY KEY AUTOINCREMENT,
-            tytul             TEXT NOT NULL,
-            cena              REAL,
-            cena_poprzednia   REAL,
-            lokalizacja       TEXT,
-            data_dodania      DATE,
-            url               TEXT NOT NULL UNIQUE,  -- <-- UNIQUE, URL = identyfikator
-            status            TEXT DEFAULT 'nowe'    -- 'nowe' | 'wzrost' | 'spadek' | 'bez_zmian'
-        )
-    """)
-    conn.commit()
+    with sqlite3.connect(f"{nazwa_db}.db") as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS produkty (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                tytul             TEXT NOT NULL,
+                cena              REAL,
+                cena_poprzednia   REAL,
+                lokalizacja       TEXT,
+                data_dodania      DATE,
+                url               TEXT NOT NULL UNIQUE,  -- <-- UNIQUE, URL = identyfikator
+                status            TEXT DEFAULT 'nowe'    -- 'nowe' | 'wzrost' | 'spadek' | 'bez_zmian'
+            )
+        """)
+        conn.commit()
+    return("Baza zostala stworzona.")
 
-def aktualizuj_baze(keyword: str, strony: int, conn):
+def aktualizuj_baze(keyword: str, strony: int, nazwa_db:str, min_price=None, max_price=None):
     """
     Scrapuje ogłoszenia i aktualizuje bazę.
     Zwraca DataFrame z wynikami (ze statusem) do wyświetlenia w Streamlit.
     """
-    listings = scrape_listings(keyword, strony)
-    logger.debug(f"Pobrano {len(listings)} rekordów ze scrapera")
+    with sqlite3.connect(f"{nazwa_db}.db") as conn:
+        listings = scrape_listings(keyword, strony)
+        logger.debug(f"Pobrano {len(listings)} rekordów ze scrapera")
+        min_price = min_price or 1
+        max_price = max_price or 50000
+        wiersze = []
+        for item in listings:
+            price = parse_price(item["price"])
+            if price is not None:
+                if min_price < price and max_price > price:
+                    continue
 
-    wiersze = []
-    for item in listings:
-        price = parse_price(item["price"])
-        if price is None or price <= 400:
-            continue
+            loc_raw = str(item["location"])
+            location = loc_raw[:loc_raw.rfind("-")].strip()
+            date_raw = loc_raw[loc_raw.rfind("-") + 2:].strip()
 
-        loc_raw = str(item["location"])
-        location = loc_raw[:loc_raw.rfind("-")].strip()
-        date_raw = loc_raw[loc_raw.rfind("-") + 2:].strip()
+            wiersze.append({
+                "tytul":       item["title"],
+                "cena":        price,
+                "lokalizacja": location,
+                "data_dodania": parse_date(date_raw),
+                "url":         item["url"],
+            })
 
-        wiersze.append({
-            "tytul":       item["title"],
-            "cena":        price,
-            "lokalizacja": location,
-            "data_dodania": parse_date(date_raw),
-            "url":         item["url"],
-        })
+        if not wiersze:
+            return pd.DataFrame()
 
-    if not wiersze:
-        return pd.DataFrame()
+        df_nowe = pd.DataFrame(wiersze)
 
-    df_nowe = pd.DataFrame(wiersze)
+        # Pobierz aktualny stan bazy
+        df_baza = pd.read_sql("SELECT url, cena FROM produkty", conn)
 
-    # Pobierz aktualny stan bazy
-    df_baza = pd.read_sql("SELECT url, cena FROM produkty", conn)
+        # Łącz po URL – sprawdź co jest nowe, co się zmieniło
+        df = df_nowe.merge(df_baza, on="url", how="left", suffixes=("", "_stara"))
 
-    # Łącz po URL – sprawdź co jest nowe, co się zmieniło
-    df = df_nowe.merge(df_baza, on="url", how="left", suffixes=("", "_stara"))
+        def _wylicz_status(row):
+            if pd.isna(row["cena_stara"]):
+                return "nowe"
+            if row["cena"] > row["cena_stara"]:
+                return "wzrost"
+            if row["cena"] < row["cena_stara"]:
+                return "spadek"
+            return "bez_zmian"
 
-    def _wylicz_status(row):
-        if pd.isna(row["cena_stara"]):
-            return "nowe"
-        if row["cena"] > row["cena_stara"]:
-            return "wzrost"
-        if row["cena"] < row["cena_stara"]:
-            return "spadek"
-        return "bez_zmian"
+        df["status"] = df.apply(_wylicz_status, axis=1)
+        df["cena_poprzednia"] = df["cena_stara"]
 
-    df["status"] = df.apply(_wylicz_status, axis=1)
-    df["cena_poprzednia"] = df["cena_stara"]
+        # Zapisz do bazy
+        cursor = conn.cursor()
+        for _, row in df.iterrows():
+            if row["status"] == "nowe":
+                cursor.execute("""
+                    INSERT OR IGNORE INTO produkty
+                        (tytul, cena, cena_poprzednia, lokalizacja, data_dodania, url, status)
+                    VALUES (?, ?, NULL, ?, ?, ?, 'nowe')
+                """, (row["tytul"], row["cena"], row["lokalizacja"], row["data_dodania"], row["url"]))
 
-    # Zapisz do bazy
-    cursor = conn.cursor()
-    for _, row in df.iterrows():
-        if row["status"] == "nowe":
-            cursor.execute("""
-                INSERT OR IGNORE INTO produkty
-                    (tytul, cena, cena_poprzednia, lokalizacja, data_dodania, url, status)
-                VALUES (?, ?, NULL, ?, ?, ?, 'nowe')
-            """, (row["tytul"], row["cena"], row["lokalizacja"], row["data_dodania"], row["url"]))
+            elif row["status"] in ("wzrost", "spadek"):
+                cursor.execute("""
+                    UPDATE produkty
+                    SET cena_poprzednia = cena,
+                        cena            = ?,
+                        status          = ?,
+                        data_dodania    = ?
+                    WHERE url = ?
+                """, (row["cena"], row["status"], row["data_dodania"], row["url"]))
 
-        elif row["status"] in ("wzrost", "spadek"):
-            cursor.execute("""
-                UPDATE produkty
-                SET cena_poprzednia = cena,
-                    cena            = ?,
-                    status          = ?,
-                    data_dodania    = ?
-                WHERE url = ?
-            """, (row["cena"], row["status"], row["data_dodania"], row["url"]))
+        conn.commit()
+        logger.info(f"Zapisano: {(df['status']=='nowe').sum()} nowych, "
+                    f"{(df['status']=='wzrost').sum()} wzrostów, "
+                    f"{(df['status']=='spadek').sum()} spadków")
 
-    conn.commit()
-    logger.info(f"Zapisano: {(df['status']=='nowe').sum()} nowych, "
-                f"{(df['status']=='wzrost').sum()} wzrostów, "
-                f"{(df['status']=='spadek').sum()} spadków")
-
-    return df[["tytul", "cena", "cena_poprzednia", "lokalizacja", "data_dodania", "url", "status"]]
+        return df[["tytul", "cena", "cena_poprzednia", "lokalizacja", "data_dodania", "url", "status"]]
 
 if __name__ == "__main__":
-    with sqlite3.connect("baza_danych.db") as conn:
-        stworz_baze(conn)
-        aktualizuj_baze("iphone-14", 2, conn)
+    stworz_baze("baza_danych")
+    aktualizuj_baze("iphone-14", 2, "baza_danych")
