@@ -64,7 +64,7 @@ def aktualizuj_baze(keyword: str, strony: int, nazwa_db:str, min_price=None, max
                 if min_price is not None and price < min_price:
                     continue
                 if max_price is not None and price > max_price:
-                    continue                
+                    continue
             loc_raw = str(item["location"])
             location = loc_raw[:loc_raw.rfind("-")].strip()
             date_raw = loc_raw[loc_raw.rfind("-") + 2:].strip()
