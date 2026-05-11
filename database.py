@@ -31,11 +31,11 @@ def parse_date(raw: str):
 
 # --- Baza danych ---
 
-def stworz_baze(nazwa_db):
+def stworz_tabele(nazwa_db, nazwa_tabeli):
     """Tworzy tabelę jeśli nie istnieje."""
-    with sqlite3.connect(f"{nazwa_db}.db") as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS produkty (
+    with sqlite3.connect(f"data/{nazwa_db}.db") as conn:
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS "{nazwa_tabeli}" (
                 id                INTEGER PRIMARY KEY AUTOINCREMENT,
                 tytul             TEXT NOT NULL,
                 cena              REAL,
@@ -49,23 +49,22 @@ def stworz_baze(nazwa_db):
         conn.commit()
     return("Baza zostala stworzona.")
 
-def aktualizuj_baze(keyword: str, strony: int, nazwa_db:str, min_price=None, max_price=None):
+def aktualizuj_baze(keyword: str, strony: int, nazwa_db:str, min_price=None, max_price=None, nazwa_tabeli:str="produkty"):
     """
     Scrapuje ogłoszenia i aktualizuje bazę.
     Zwraca DataFrame z wynikami (ze statusem) do wyświetlenia w Streamlit.
     """
-    with sqlite3.connect(f"{nazwa_db}.db") as conn:
+    with sqlite3.connect(f"data/{nazwa_db}.db") as conn:
         listings = scrape_listings(keyword, strony)
         logger.debug(f"Pobrano {len(listings)} rekordów ze scrapera")
-        min_price = min_price or 1
-        max_price = max_price or 50000
         wiersze = []
         for item in listings:
             price = parse_price(item["price"])
             if price is not None:
-                if min_price < price and max_price > price:
+                if min_price is not None and price < min_price:
                     continue
-
+                if max_price is not None and price > max_price:
+                    continue                
             loc_raw = str(item["location"])
             location = loc_raw[:loc_raw.rfind("-")].strip()
             date_raw = loc_raw[loc_raw.rfind("-") + 2:].strip()
@@ -84,7 +83,7 @@ def aktualizuj_baze(keyword: str, strony: int, nazwa_db:str, min_price=None, max
         df_nowe = pd.DataFrame(wiersze)
 
         # Pobierz aktualny stan bazy
-        df_baza = pd.read_sql("SELECT url, cena FROM produkty", conn)
+        df_baza = pd.read_sql(f"""SELECT url, cena FROM "{nazwa_tabeli}" """, conn)
 
         # Łącz po URL – sprawdź co jest nowe, co się zmieniło
         df = df_nowe.merge(df_baza, on="url", how="left", suffixes=("", "_stara"))
@@ -105,15 +104,15 @@ def aktualizuj_baze(keyword: str, strony: int, nazwa_db:str, min_price=None, max
         cursor = conn.cursor()
         for _, row in df.iterrows():
             if row["status"] == "nowe":
-                cursor.execute("""
-                    INSERT OR IGNORE INTO produkty
+                cursor.execute(f"""
+                    INSERT OR IGNORE INTO "{nazwa_tabeli}"
                         (tytul, cena, cena_poprzednia, lokalizacja, data_dodania, url, status)
                     VALUES (?, ?, NULL, ?, ?, ?, 'nowe')
                 """, (row["tytul"], row["cena"], row["lokalizacja"], row["data_dodania"], row["url"]))
 
             elif row["status"] in ("wzrost", "spadek"):
-                cursor.execute("""
-                    UPDATE produkty
+                cursor.execute(f"""
+                    UPDATE "{nazwa_tabeli}"
                     SET cena_poprzednia = cena,
                         cena            = ?,
                         status          = ?,
@@ -128,6 +127,15 @@ def aktualizuj_baze(keyword: str, strony: int, nazwa_db:str, min_price=None, max
 
         return df[["tytul", "cena", "cena_poprzednia", "lokalizacja", "data_dodania", "url", "status"]]
 
+def konwersja_pandas(nazwa_db:str, nazwa_tabeli:str):
+    with sqlite3.connect(f"data/{nazwa_db}.db") as conn:
+        try:
+            df = pd.read_sql(f"""SELECT * FROM "{nazwa_tabeli}" """, conn)
+            df.to_csv(f"data/{nazwa_tabeli}.csv", index=False, encoding="utf-8-sig")
+        except Exception as e:
+            return(f"Tabela '{nazwa_tabeli}' nie istnieje lub inny blad: {e}")
+    return True
+
 if __name__ == "__main__":
-    stworz_baze("baza_danych")
+    stworz_tabele("baza_danych", "produkty")
     aktualizuj_baze("iphone-14", 2, "baza_danych")
