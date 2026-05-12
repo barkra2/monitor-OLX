@@ -1,5 +1,6 @@
 import pandas as pd
 from database import aktualizuj_baze, stworz_tabele, konwersja_pandas
+from raport import generuj_xlsx
 import streamlit as st
 
 st.set_page_config(page_title="OLX Scraper")
@@ -38,16 +39,22 @@ with tab2:
     nazwa_db = st.text_input("Podaj nazwe bazy danych")
     nazwa_tabeli = st.text_input("Podaj nazwe tabeli")
     if nazwa_db and nazwa_tabeli:
+        nazwa_db = parse_db(nazwa_db)
+        nazwa_tabeli = parse_table(nazwa_tabeli)
+        konwersja = konwersja_pandas(nazwa_db, nazwa_tabeli)
         if st.button("Generuj tabele"):
-            nazwa_db = parse_db(nazwa_db)
-            nazwa_tabeli = parse_table(nazwa_tabeli)
-            konwersja = konwersja_pandas(nazwa_db, nazwa_tabeli)
             if konwersja:
                 csv = pd.read_csv(f"data/{nazwa_tabeli}.csv")
                 st.dataframe(csv)
-                
             else:
                 st.error(konwersja)
+        if st.button("Generuj plik xlsx"):
+            if konwersja:
+                csv = pd.read_csv(f"data/{nazwa_tabeli}.csv")
+                st.text(generuj_xlsx(nazwa_tabeli, csv))
+
+                
+
 
         
 
