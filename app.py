@@ -2,6 +2,7 @@ import pandas as pd
 from database import aktualizuj_baze, stworz_tabele, konwersja_pandas
 from raport import generuj_xlsx
 import streamlit as st
+import os
 
 st.set_page_config(page_title="OLX Scraper")
 st.title("Scraper cen OLX")
@@ -14,8 +15,15 @@ def parse_table(table:str):
     if table.count(" "):
         table.replace(" ", "-")
     return table
+def file_selector(id, folder_path='data'):
+    filenames = os.listdir(folder_path)
+    for i in filenames:
+        if i[:-3] != '.db':
+            filenames.remove(i)
+    selected_filename = st.selectbox('Wybierz plik', filenames, key=id)
+    return os.path.join(folder_path, selected_filename)
 
-tab1, tab2 = st.tabs(["Scraper", "Analiza"])
+tab1, tab2, tab3 = st.tabs(["Scraper", "Analiza", "Filtruj"])
 
 with tab1:
     query = st.text_input("Podaj rzecz ktora chcesz wyszukac")
@@ -36,10 +44,9 @@ with tab1:
             else:
                 st.error("Nastapil blad w scrapowaniu, po wiecej zobacz plik log")
 with tab2:
-    nazwa_db = st.text_input("Podaj nazwe bazy danych")
+    nazwa_db = file_selector(id="tab2_file")
     nazwa_tabeli = st.text_input("Podaj nazwe tabeli")
     if nazwa_db and nazwa_tabeli:
-        nazwa_db = parse_db(nazwa_db)
         nazwa_tabeli = parse_table(nazwa_tabeli)
         konwersja = konwersja_pandas(nazwa_db, nazwa_tabeli)
         if st.button("Generuj tabele"):
@@ -52,8 +59,9 @@ with tab2:
             if konwersja:
                 csv = pd.read_csv(f"data/{nazwa_tabeli}.csv")
                 st.text(generuj_xlsx(nazwa_tabeli, csv))
-
-                
+with tab3:
+    nazwa_bazy = file_selector(id="tab3_file")
+    nazwa_tabeli = st.text_input("Podaj nazwe tabeli do filtrowania")
 
 
         

@@ -128,7 +128,7 @@ def aktualizuj_baze(keyword: str, strony: int, nazwa_db:str, min_price=None, max
         return df[["tytul", "cena", "cena_poprzednia", "lokalizacja", "data_dodania", "url", "status"]]
 
 def konwersja_pandas(nazwa_db:str, nazwa_tabeli:str):
-    with sqlite3.connect(f"data/{nazwa_db}.db") as conn:
+    with sqlite3.connect(f"{nazwa_db}") as conn:
         try:
             df = pd.read_sql(f"""SELECT * FROM "{nazwa_tabeli}" """, conn)
             df.to_csv(f"data/{nazwa_tabeli}.csv", index=False, encoding="utf-8-sig")
