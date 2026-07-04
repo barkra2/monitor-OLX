@@ -60,8 +60,10 @@ with tab2:
                 csv = pd.read_csv(f"data/{nazwa_tabeli}.csv")
                 st.text(generuj_xlsx(nazwa_tabeli, csv))
 with tab3:
-    nazwa_bazy = file_selector(id="tab3_file")
-    nazwa_tabeli = st.text_input("Podaj nazwe tabeli do filtrowania")
+    nazwa_tabeli = st.text_input("Podaj nazwe tabeli do filtrowania (upewnij sie ze w folderze data jest obecny plik .csv)")
+    if nazwa_tabeli:
+        plik = pd.read_csv(f'data/{nazwa_tabeli}.csv')
+        
 
 
         
