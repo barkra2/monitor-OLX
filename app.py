@@ -63,7 +63,13 @@ with tab3:
     nazwa_tabeli = st.text_input("Podaj nazwe tabeli do filtrowania (upewnij sie ze w folderze data jest obecny plik .csv)")
     if nazwa_tabeli:
         plik = pd.read_csv(f'data/{nazwa_tabeli}.csv')
-        
+        kolumny = plik.columns.tolist()
+        wybor = st.selectbox("Wybierz kolumne", kolumny, key="filtr_kolumny")
+        if wybor:
+            if pd.api.types.is_numeric_dtype(plik[f'{wybor}']):
+                min = st.number_input("Podaj minimalna liczbe", value=0, key="min")
+                max = st.number_input("Podaj maksymalna liczbe", value=100, key="max")
+                # if min and max:
 
 
         
