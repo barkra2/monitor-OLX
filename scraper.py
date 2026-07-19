@@ -38,7 +38,7 @@ def scrape_listings(query: str, pages: int = 3) -> list[dict]:
             cards = soup.select("[data-cy='l-card']")
             
             for card in cards:
-                title_el = card.select_one("[data-cy='ad-card-title'] > a > h4")
+                title_el = card.select_one("[data-cy='ad-card-title']")
                 price_el = card.select_one("[data-testid='ad-price']")
                 link_el = card.select_one("a[href]")
                 location_el = card.select_one("[data-testid='location-date']")
@@ -78,11 +78,10 @@ def scrape_listings(query: str, pages: int = 3) -> list[dict]:
 #     }
 
 if __name__ == "__main__":
-    listings = scrape_listings("iphone-14", pages=2)
+    listings = scrape_listings("iphone-14", pages=1)
+    print(f"Znaleziono {len(listings)} ofert")
+    print(listings[:2])
 
-    for item in listings:
-        print(item["title"], "|", item["price"], "|", item["location"])
-        print(" ->", item["url"])
     # if listings:
     #     detail = scrape_detail(listings[0]["url"])
     #     print(detail)
