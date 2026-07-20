@@ -2,7 +2,7 @@ import pandas as pd
 from database import aktualizuj_baze, stworz_tabele, konwersja_pandas
 from raport import generuj_xlsx
 import streamlit as st
-import os
+import os, io
 
 st.set_page_config(page_title="OLX Scraper")
 st.title("Scraper cen OLX")
@@ -22,7 +22,7 @@ def file_selector(id, folder_path='data'):
     selected_filename = st.selectbox('Wybierz plik', filenames, key=id)
     return os.path.join(folder_path, selected_filename)
 
-tab1, tab2, tab3 = st.tabs(["Scraper", "Analiza", "Filtruj"])
+tab1, tab2, tab3 = st.tabs(["Scraper", "Konwersja", "Analiza"])
 
 with tab1:
     query = st.text_input("Podaj rzecz ktora chcesz wyszukac")
@@ -50,26 +50,64 @@ with tab2:
     if nazwa_db and nazwa_tabeli:
         nazwa_tabeli = parse_table(nazwa_tabeli)
         konwersja = konwersja_pandas(nazwa_db, nazwa_tabeli)
-        if konwersja is True:
-            csv = pd.read_csv(f"data/{nazwa_tabeli}.csv")
-            st.dataframe(csv, hide_index=True)
-            # st.download_button("Pobierz plik excel")
-            # if st.button("Generuj plik xlsx", key="button2"):
-            #     csv = pd.read_csv(f"data/{nazwa_tabeli}.csv", encoding="utf-8")
-                
-            #     csv.to_excel(f'data/{nazwa_tabeli}.xlsx')
+        if isinstance(konwersja, pd.DataFrame):
+            st.dataframe(konwersja, hide_index=True)
+
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                excel_buffer = io.BytesIO()
+                with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+                    konwersja.to_excel(writer, index=False, sheet_name=nazwa_tabeli[:31])
+                excel_buffer.seek(0)
+
+                st.download_button(
+                    label="Pobierz jako Excel",
+                    data=excel_buffer,
+                    file_name=f"{nazwa_tabeli}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
+            with col3:
+                csv_data = konwersja.to_csv(index=False, encoding="utf-8-sig")
+
+                st.download_button(
+                    label="Pobierz jako CSV",
+                    data=csv_data,
+                    file_name=f"{nazwa_tabeli}.csv",
+                    mime="text/csv"
+                )            
         else:
             st.error(konwersja)
 with tab3:
-    nazwa_tabeli = st.text_input("Podaj nazwe tabeli do filtrowania (upewnij sie ze w folderze data jest obecny plik .csv)")
+    nazwa_db = file_selector(id="tab3_file")
+    nazwa_tabeli = st.text_input("Podaj nazwe tabeli do filtrowania")
     if nazwa_tabeli:
-        plik = pd.read_csv(f'data/{nazwa_tabeli}.csv')
-        kolumny = plik.columns.tolist()
-        wybor = st.selectbox("Wybierz kolumne", kolumny, key="filtr_kolumny")
-        if wybor:
-            if pd.api.types.is_numeric_dtype(plik[f'{wybor}']):
-                min = st.number_input("Podaj minimalna liczbe", value=0, key="min")
-                max = st.number_input("Podaj maksymalna liczbe", value=100, key="max")
+        konwersja = konwersja_pandas(nazwa_db, nazwa_tabeli)
+        if isinstance(konwersja, pd.DataFrame):
+            kolumny_numeryczne = konwersja.select_dtypes(include="number").columns.tolist()
+            kolumny_kategorie = konwersja.select_dtypes(exclude="number").columns.tolist()
+
+            os_x = st.selectbox("Kategoria (oś X)", kolumny_kategorie)
+            wartosci_y = st.multiselect("Wartości do wykresu (oś Y)", kolumny_numeryczne, default=kolumny_numeryczne)
+            ogranicz_do_20 = st.checkbox("Ogranicz wykres do 20 najnowszych wyników")
+
+            df_do_wykresu = konwersja.sort_values("data_dodania", ascending=False).head(20) if ogranicz_do_20 else konwersja
+            if not df_do_wykresu.empty:
+                wykres = df_do_wykresu.groupby(os_x)[wartosci_y].mean()
+                st.bar_chart(wykres)
+            else:
+                st.info("Brak danych do wyświetlenia.")
+        
+
+
+#         plik = pd.read_csv(f'data/{nazwa_tabeli}.csv')
+#         kolumny = plik.columns.tolist()
+#         wybor = st.selectbox("Wybierz kolumne", kolumny, key="filtr_kolumny")
+#         if wybor:
+#             if pd.api.types.is_numeric_dtype(plik[f'{wybor}']):
+#                 min = st.number_input("Podaj minimalna liczbe", value=0, key="min")
+#                 max = st.number_input("Podaj maksymalna liczbe", value=100, key="max")
                 # if min and max:
 
 

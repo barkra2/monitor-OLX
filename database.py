@@ -133,7 +133,8 @@ def konwersja_pandas(nazwa_db:str, nazwa_tabeli:str):
     with sqlite3.connect(f"{nazwa_db}") as conn:
         try:
             df = pd.read_sql(f"""SELECT * FROM "{nazwa_tabeli}" """, conn)
-            df.to_csv(f"data/{nazwa_tabeli}.csv", index=False, encoding="utf-8-sig")
+            return pd.DataFrame(df)
+            # df.to_csv(f"data/{nazwa_tabeli}.csv", index=False, encoding="utf-8-sig")
         except Exception as e:
             return(f"Tabela '{nazwa_tabeli}' nie istnieje lub inny blad: {e}")
     return True
