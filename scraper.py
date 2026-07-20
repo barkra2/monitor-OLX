@@ -38,16 +38,19 @@ def scrape_listings(query: str, pages: int = 3) -> list[dict]:
             cards = soup.select("[data-cy='l-card']")
             
             for card in cards:
-                title_el = card.select_one("[data-cy='ad-card-title']")
+                title_el = card.select_one("[data-testid='card-title-link']")
                 price_el = card.select_one("[data-testid='ad-price']")
+                stan_el = card.select_one("[data-nx-name='NexusBadge']:not([data-testid='free-delivery-tag'])")
                 link_el = card.select_one("a[href]")
                 location_el = card.select_one("[data-testid='location-date']")
 
                 results.append({
                     "title": title_el.get_text(strip=True) if title_el else None,
                     "price": price_el.get_text(strip=True) if price_el else None,
+                    "stan": stan_el.get_text(strip=True) if stan_el else None,
                     "location": location_el.get_text(strip=True) if location_el else None,
                     "url": f"https://www.olx.pl{link_el["href"]}" if link_el else None,
+                    
                 })
             
             time.sleep(random.uniform(2, 5))

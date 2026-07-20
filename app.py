@@ -49,17 +49,17 @@ with tab2:
     nazwa_tabeli = st.text_input("Podaj nazwe tabeli")
     if nazwa_db and nazwa_tabeli:
         nazwa_tabeli = parse_table(nazwa_tabeli)
-        st.text(nazwa_db)
-        konwersja = konwersja_pandas(nazwa_db, nazwa_tabeli)
         konwersja = konwersja_pandas(nazwa_db, nazwa_tabeli)
         if konwersja is True:
             csv = pd.read_csv(f"data/{nazwa_tabeli}.csv")
-            st.dataframe(csv)
+            st.dataframe(csv, hide_index=True)
+            # st.download_button("Pobierz plik excel")
+            # if st.button("Generuj plik xlsx", key="button2"):
+            #     csv = pd.read_csv(f"data/{nazwa_tabeli}.csv", encoding="utf-8")
+                
+            #     csv.to_excel(f'data/{nazwa_tabeli}.xlsx')
         else:
             st.error(konwersja)
-            if st.button("Generuj plik xlsx"):
-                csv = pd.read_csv(f"data/{nazwa_tabeli}.csv", encoding="utf-8")
-                csv.to_excel(f'{nazwa_tabeli}.xlsx')
 with tab3:
     nazwa_tabeli = st.text_input("Podaj nazwe tabeli do filtrowania (upewnij sie ze w folderze data jest obecny plik .csv)")
     if nazwa_tabeli:

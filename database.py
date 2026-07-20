@@ -40,6 +40,7 @@ def stworz_tabele(nazwa_db, nazwa_tabeli):
                 tytul             TEXT NOT NULL,
                 cena              REAL,
                 cena_poprzednia   REAL,
+                stan              TEXT,
                 lokalizacja       TEXT,
                 data_dodania      DATE,
                 url               TEXT NOT NULL UNIQUE,  -- <-- UNIQUE, URL = identyfikator
@@ -72,6 +73,7 @@ def aktualizuj_baze(keyword: str, strony: int, nazwa_db:str, min_price=None, max
             wiersze.append({
                 "tytul":       item["title"],
                 "cena":        price,
+                "stan":        item["stan"],
                 "lokalizacja": location,
                 "data_dodania": parse_date(date_raw),
                 "url":         item["url"],
@@ -106,9 +108,9 @@ def aktualizuj_baze(keyword: str, strony: int, nazwa_db:str, min_price=None, max
             if row["status"] == "nowe":
                 cursor.execute(f"""
                     INSERT OR IGNORE INTO "{nazwa_tabeli}"
-                        (tytul, cena, cena_poprzednia, lokalizacja, data_dodania, url, status)
-                    VALUES (?, ?, NULL, ?, ?, ?, 'nowe')
-                """, (row["tytul"], row["cena"], row["lokalizacja"], row["data_dodania"], row["url"]))
+                        (tytul, cena, cena_poprzednia, stan, lokalizacja, data_dodania, url, status)
+                    VALUES (?, ?, NULL, ?, ?, ?, ?, 'nowe')
+                """, (row["tytul"], row["cena"], row["stan"], row["lokalizacja"], row["data_dodania"], row["url"]))
 
             elif row["status"] in ("wzrost", "spadek"):
                 cursor.execute(f"""
@@ -125,7 +127,7 @@ def aktualizuj_baze(keyword: str, strony: int, nazwa_db:str, min_price=None, max
                     f"{(df['status']=='wzrost').sum()} wzrostów, "
                     f"{(df['status']=='spadek').sum()} spadków")
 
-        return df[["tytul", "cena", "cena_poprzednia", "lokalizacja", "data_dodania", "url", "status"]]
+        return df[["tytul", "cena", "cena_poprzednia", "stan", "lokalizacja", "data_dodania", "url", "status"]]
 
 def konwersja_pandas(nazwa_db:str, nazwa_tabeli:str):
     with sqlite3.connect(f"{nazwa_db}") as conn:
