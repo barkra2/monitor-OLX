@@ -3,6 +3,7 @@ from database import aktualizuj_baze, stworz_tabele, konwersja_pandas
 from raport import generuj_xlsx
 import streamlit as st
 import os, io
+import plotly.express as px
 
 st.set_page_config(page_title="OLX Scraper")
 st.title("Scraper cen OLX")
@@ -79,26 +80,87 @@ with tab2:
                 )            
         else:
             st.error(konwersja)
+import plotly.express as px
+
 with tab3:
     nazwa_db = file_selector(id="tab3_file")
     nazwa_tabeli = st.text_input("Podaj nazwe tabeli do filtrowania")
     if nazwa_tabeli:
         konwersja = konwersja_pandas(nazwa_db, nazwa_tabeli)
         if isinstance(konwersja, pd.DataFrame):
+
+            konwersja["data_dodania"] = pd.to_datetime(
+                konwersja["data_dodania"], format="%d-%m-%Y", errors="coerce"
+            )
+            konwersja["data_dodania_str"] = konwersja["data_dodania"].dt.strftime("%Y-%m-%d")
+
             kolumny_numeryczne = konwersja.select_dtypes(include="number").columns.tolist()
             kolumny_kategorie = konwersja.select_dtypes(exclude="number").columns.tolist()
 
-            os_x = st.selectbox("Kategoria (oś X)", kolumny_kategorie)
-            wartosci_y = st.multiselect("Wartości do wykresu (oś Y)", kolumny_numeryczne, default=kolumny_numeryczne)
-            ogranicz_do_20 = st.checkbox("Ogranicz wykres do 20 najnowszych wyników")
+            if "data_dodania" in kolumny_kategorie:
+                kolumny_kategorie.remove("data_dodania")
 
-            df_do_wykresu = konwersja.sort_values("data_dodania", ascending=False).head(20) if ogranicz_do_20 else konwersja
+            os_x = st.selectbox("Kategoria (oś X)", kolumny_kategorie)
+            wartosc_y = st.selectbox("Wartość do wykresu (oś Y)", kolumny_numeryczne)
+            typ_wykresu = st.selectbox("Typ wykresu", ["Słupkowy (średnia)", "Liniowy (średnia)", "Rozrzut (box plot)"])
+            ogranicz_do_20 = st.checkbox("Ogranicz wykres do 20 najnowszych/najliczniejszych wyników")
+
+            # --- Filtrowanie do 20 wyników ---
+            if ogranicz_do_20 and os_x == "data_dodania_str":
+                ostatnie_daty = konwersja["data_dodania"].drop_duplicates().sort_values(ascending=False).head(20)
+                df_do_wykresu = konwersja[konwersja["data_dodania"].isin(ostatnie_daty)]
+            elif ogranicz_do_20:
+                top_kategorie = konwersja[os_x].value_counts().head(20).index
+                df_do_wykresu = konwersja[konwersja[os_x].isin(top_kategorie)]
+            else:
+                df_do_wykresu = konwersja
+
             if not df_do_wykresu.empty:
-                wykres = df_do_wykresu.groupby(os_x)[wartosci_y].mean()
-                st.bar_chart(wykres)
+                # --- Ustal poprawną kolejność kategorii na osi X ---
+                if os_x == "data_dodania_str":
+                    kolejnosc = (
+                        df_do_wykresu.drop_duplicates(subset=["data_dodania_str"])
+                        .sort_values("data_dodania")["data_dodania_str"]
+                        .tolist()
+                    )
+                else:
+                    # Dla kategorii - sortuj wg średniej wartości Y malejąco
+                    kolejnosc = (
+                        df_do_wykresu.groupby(os_x)[wartosc_y]
+                        .mean()
+                        .sort_values(ascending=False)
+                        .index.tolist()
+                    )
+
+                if typ_wykresu == "Rozrzut (box plot)":
+                    fig = px.box(
+                        df_do_wykresu, x=os_x, y=wartosc_y,
+                        category_orders={os_x: kolejnosc},
+                        title=f"Rozrzut {wartosc_y} wg {os_x}",
+                    )
+                else:
+                    dane_grupowane = df_do_wykresu.groupby(os_x, as_index=False)[wartosc_y].mean()
+                    # KLUCZOWA POPRAWKA: fizycznie posortuj wiersze wg tej samej kolejności co oś X
+                    dane_grupowane[os_x] = pd.Categorical(dane_grupowane[os_x], categories=kolejnosc, ordered=True)
+                    dane_grupowane = dane_grupowane.sort_values(by=os_x)
+
+                    if typ_wykresu == "Liniowy (średnia)":
+                        fig = px.line(
+                            dane_grupowane, x=os_x, y=wartosc_y, markers=True,
+                            category_orders={os_x: kolejnosc},
+                            title=f"Średnia {wartosc_y} wg {os_x}",
+                        )
+                    else:
+                        fig = px.bar(
+                            dane_grupowane, x=os_x, y=wartosc_y,
+                            category_orders={os_x: kolejnosc},
+                            title=f"Średnia {wartosc_y} wg {os_x}",
+                        )
+
+                fig.update_layout(xaxis_title=os_x, yaxis_title=wartosc_y)
+                st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("Brak danych do wyświetlenia.")
-        
 
 
 #         plik = pd.read_csv(f'data/{nazwa_tabeli}.csv')
