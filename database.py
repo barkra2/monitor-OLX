@@ -1,9 +1,17 @@
 import sqlite3, re, datetime, logging, pandas as pd
 from scraper import scrape_listings
+import re
+import datetime
 
 logger = logging.getLogger(__name__)
 
-# --- Parsery (bez zmian) ---
+
+MIESIACE = {
+    "stycznia": "01", "lutego": "02", "marca": "03",
+    "kwietnia": "04", "maja": "05", "czerwca": "06",
+    "lipca": "07", "sierpnia": "08", "września": "09",
+    "października": "10", "listopada": "11", "grudnia": "12",
+}
 
 def parse_price(raw: str) -> float | None:
     if not raw:
@@ -13,26 +21,34 @@ def parse_price(raw: str) -> float | None:
         return None
     return float(numbers.replace(",", "."))
 
-def parse_date(raw: str):
-    DATY = {
-        "stycznia": "01", "lutego": "02", "marca": "03",
-        "kwietnia": "04", "maja": "05", "czerwca": "06",
-        "lipca": "07", "sierpnia": "08", "września": "09",
-        "października": "10", "listopada": "11", "grudnia": "12"
-    }
-    for miesiac, numer in DATY.items():
-        if miesiac in raw:
-            data = raw.replace(miesiac, numer)
-            return data[-10:].replace(" ", "-")
-    if "dzisiaj" in raw.lower():
-        d = str(datetime.date.today())
-        return f"{d[8:]}-{d[5:7]}-{d[:4]}"
-    return raw
+def parse_date(raw: str) -> str | None:
+    if not raw:
+        return None
 
-# --- Baza danych ---
+    raw = raw.strip().lower()
+
+    if "dzisiaj" in raw:
+        return datetime.date.today().isoformat()
+
+    if "wczoraj" in raw:
+        return (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+
+    match = re.search(r"(\d{1,2})\s+(\w+)\s+(\d{4})", raw)
+    if match:
+        dzien, miesiac_slowo, rok = match.groups()
+        numer_miesiaca = MIESIACE.get(miesiac_slowo)
+        if numer_miesiaca:
+            try:
+                data = datetime.date(int(rok), int(numer_miesiaca), int(dzien))
+                return data.isoformat()
+            except ValueError:
+                logger.warning(f"Niepoprawna data po sparsowaniu: {raw}")
+                return None
+
+    logger.warning(f"Nie udało się sparsować daty: {raw}")
+    return None
 
 def stworz_tabele(nazwa_db, nazwa_tabeli):
-    """Tworzy tabelę jeśli nie istnieje."""
     with sqlite3.connect(f"data/{nazwa_db}.db") as conn:
         conn.execute(f"""
             CREATE TABLE IF NOT EXISTS "{nazwa_tabeli}" (
@@ -61,7 +77,11 @@ def aktualizuj_baze(keyword: str, strony: int, nazwa_db:str, min_price=None, max
         wiersze = []
         for item in listings:
             price = parse_price(item["price"])
-            if price is not None:
+
+            if price is None:
+                if min_price is not None or max_price is not None:
+                    continue
+            else:
                 if min_price is not None and price < min_price:
                     continue
                 if max_price is not None and price > max_price:
@@ -84,10 +104,8 @@ def aktualizuj_baze(keyword: str, strony: int, nazwa_db:str, min_price=None, max
 
         df_nowe = pd.DataFrame(wiersze)
 
-        # Pobierz aktualny stan bazy
         df_baza = pd.read_sql(f"""SELECT url, cena FROM "{nazwa_tabeli}" """, conn)
 
-        # Łącz po URL – sprawdź co jest nowe, co się zmieniło
         df = df_nowe.merge(df_baza, on="url", how="left", suffixes=("", "_stara"))
 
         def _wylicz_status(row):

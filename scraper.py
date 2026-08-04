@@ -24,6 +24,9 @@ def get_page(url: str):
         except requests.exceptions.Timeout:
             logger.warning(f"Timeout, proba {attempt+1}/3...")
             time.sleep(5)
+        except requests.exceptions.HTTPError as e:
+            logger.warning(f"HTTP error {e}, proba {attempt+1}/3...")
+            time.sleep(5)
     logger.error("Nie udalo sie polaczyc z OLX.", exc_info=True)
     return None
 
@@ -34,7 +37,7 @@ def scrape_listings(query: str, pages: int = 3) -> list[dict]:
         url = f"https://www.olx.pl/oferty/q-{query}/?page={page}"
         soup = get_page(url)
         if soup:
-            logger.info("Zbieram informacje na temat {query} ze strony nr {pages}")
+            logger.info(f"Zbieram informacje na temat {query} ze strony nr {pages}")
             cards = soup.select("[data-cy='l-card']")
             
             for card in cards:
@@ -49,7 +52,7 @@ def scrape_listings(query: str, pages: int = 3) -> list[dict]:
                     "price": price_el.get_text(strip=True) if price_el else None,
                     "stan": stan_el.get_text(strip=True) if stan_el else None,
                     "location": location_el.get_text(strip=True) if location_el else None,
-                    "url": f"https://www.olx.pl{link_el["href"]}" if link_el else None,
+                    "url": f'https://www.olx.pl{link_el["href"]}' if link_el else None,
                     
                 })
             
@@ -58,33 +61,8 @@ def scrape_listings(query: str, pages: int = 3) -> list[dict]:
             logger.error("Nie udalo sie zebrac informacji.", exc_info=True)
     return results
 
-# def scrape_detail(url: str) -> dict:
-#     soup = get_page(url)
-#     if soup:
-#     title   = soup.select_one("h1[data-cy='ad_title']")
-#     price   = soup.select_one("[data-testid='ad-price-container']")
-#     desc    = soup.select_one("[data-cy='ad_description']")
-
-#     # Parametry (np. stan, marka) - są w listach <li>
-#     params = {}
-#     for item in soup.select("[data-testid='ad-details-list'] li"):
-#         key = item.select_one("p:first-child")
-#         val = item.select_one("p:last-child")
-#         if key and val:
-#             params[key.get_text(strip=True)] = val.get_text(strip=True)
-
-#     return {
-#         "title":       title.get_text(strip=True) if title else None,
-#         "price":       price.get_text(strip=True) if price else None,
-#         "description": desc.get_text(strip=True) if desc else None,
-#         "params":      params,
-#     }
 
 if __name__ == "__main__":
     listings = scrape_listings("iphone-14", pages=1)
     print(f"Znaleziono {len(listings)} ofert")
     print(listings[:2])
-
-    # if listings:
-    #     detail = scrape_detail(listings[0]["url"])
-    #     print(detail)

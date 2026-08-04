@@ -1,12 +1,19 @@
 import pandas as pd
 from database import aktualizuj_baze, stworz_tabele, konwersja_pandas
-from raport import generuj_xlsx
 import streamlit as st
-import os, io
+import os, io, re
 import plotly.express as px
+import logging
 
 st.set_page_config(page_title="OLX Scraper")
 st.title("Scraper cen OLX")
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+
+def waliduj_nazwe(nazwa: str) -> str:
+    if not re.match(r"^[a-zA-Z0-9_-]+$", nazwa):
+        raise ValueError("Nazwa może zawierać tylko litery, cyfry, - i _")
+    return nazwa
 
 def parse_db(db: str) -> str:
     return db.replace(".db", "").strip()
@@ -36,7 +43,7 @@ with tab1:
         if st.button("Wygeneruj wyniki"):
             query = query.replace(" ", "-")
             nazwa_db = parse_db(nazwa_db)
-            nazwa_tabeli = parse_table(nazwa_tabeli)
+            nazwa_tabeli = waliduj_nazwe(parse_table(nazwa_tabeli))
             if stworz_tabele(nazwa_db, nazwa_tabeli) is not None:
                 st.text("Stworzono tabele...")
             wynik = aktualizuj_baze(query, pages, nazwa_db, cena_min, cena_max, nazwa_tabeli)
@@ -49,7 +56,7 @@ with tab2:
     nazwa_db = file_selector(id="tab2_file")
     nazwa_tabeli = st.text_input("Podaj nazwe tabeli")
     if nazwa_db and nazwa_tabeli:
-        nazwa_tabeli = parse_table(nazwa_tabeli)
+        nazwa_tabeli = waliduj_nazwe(parse_table(nazwa_tabeli))
         konwersja = konwersja_pandas(nazwa_db, nazwa_tabeli)
         if isinstance(konwersja, pd.DataFrame):
             st.dataframe(konwersja, hide_index=True)
@@ -80,15 +87,15 @@ with tab2:
                 )            
         else:
             st.error(konwersja)
-import plotly.express as px
 
 with tab3:
     nazwa_db = file_selector(id="tab3_file")
     nazwa_tabeli = st.text_input("Podaj nazwe tabeli do filtrowania")
-    if nazwa_tabeli:
+    if nazwa_tabeli and nazwa_db:
+        nazwa_tabeli = waliduj_nazwe(nazwa_tabeli)
         konwersja = konwersja_pandas(nazwa_db, nazwa_tabeli)
         if isinstance(konwersja, pd.DataFrame):
-
+            st.dataframe(konwersja)
             konwersja["data_dodania"] = pd.to_datetime(
                 konwersja["data_dodania"], format="%d-%m-%Y", errors="coerce"
             )
@@ -97,8 +104,15 @@ with tab3:
             kolumny_numeryczne = konwersja.select_dtypes(include="number").columns.tolist()
             kolumny_kategorie = konwersja.select_dtypes(exclude="number").columns.tolist()
 
+            if "id" in kolumny_numeryczne:
+                kolumny_numeryczne.remove("id")
+
             if "data_dodania" in kolumny_kategorie:
                 kolumny_kategorie.remove("data_dodania")
+
+            for kol in ["url", "tytul"]:
+                if kol in kolumny_kategorie:
+                    kolumny_kategorie.remove(kol)
 
             os_x = st.selectbox("Kategoria (oś X)", kolumny_kategorie)
             wartosc_y = st.selectbox("Wartość do wykresu (oś Y)", kolumny_numeryczne)
@@ -116,7 +130,6 @@ with tab3:
                 df_do_wykresu = konwersja
 
             if not df_do_wykresu.empty:
-                # --- Ustal poprawną kolejność kategorii na osi X ---
                 if os_x == "data_dodania_str":
                     kolejnosc = (
                         df_do_wykresu.drop_duplicates(subset=["data_dodania_str"])
@@ -124,7 +137,6 @@ with tab3:
                         .tolist()
                     )
                 else:
-                    # Dla kategorii - sortuj wg średniej wartości Y malejąco
                     kolejnosc = (
                         df_do_wykresu.groupby(os_x)[wartosc_y]
                         .mean()
@@ -140,7 +152,6 @@ with tab3:
                     )
                 else:
                     dane_grupowane = df_do_wykresu.groupby(os_x, as_index=False)[wartosc_y].mean()
-                    # KLUCZOWA POPRAWKA: fizycznie posortuj wiersze wg tej samej kolejności co oś X
                     dane_grupowane[os_x] = pd.Categorical(dane_grupowane[os_x], categories=kolejnosc, ordered=True)
                     dane_grupowane = dane_grupowane.sort_values(by=os_x)
 
@@ -162,23 +173,3 @@ with tab3:
             else:
                 st.info("Brak danych do wyświetlenia.")
 
-
-#         plik = pd.read_csv(f'data/{nazwa_tabeli}.csv')
-#         kolumny = plik.columns.tolist()
-#         wybor = st.selectbox("Wybierz kolumne", kolumny, key="filtr_kolumny")
-#         if wybor:
-#             if pd.api.types.is_numeric_dtype(plik[f'{wybor}']):
-#                 min = st.number_input("Podaj minimalna liczbe", value=0, key="min")
-#                 max = st.number_input("Podaj maksymalna liczbe", value=100, key="max")
-                # if min and max:
-
-
-        
-
-# with tab3:
-#     nazwa_bazy = st.text_input("Podaj nazwe bazy")
-#     if nazwa_bazy:
-#         if st.button("Stworz"):
-#             if nazwa_bazy.find(".db"):
-#                 nazwa_bazy.replace(".db", "")
-#             st.text(stworz_baze(nazwa_bazy))
