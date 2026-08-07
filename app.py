@@ -95,7 +95,7 @@ with tab3:
         nazwa_tabeli = waliduj_nazwe(nazwa_tabeli)
         konwersja = konwersja_pandas(nazwa_db, nazwa_tabeli)
         if isinstance(konwersja, pd.DataFrame):
-            st.dataframe(konwersja)
+            st.dataframe(konwersja, hide_index=True)
             konwersja["data_dodania"] = pd.to_datetime(
                 konwersja["data_dodania"], format="%d-%m-%Y", errors="coerce"
             )
@@ -119,7 +119,6 @@ with tab3:
             typ_wykresu = st.selectbox("Typ wykresu", ["Słupkowy (średnia)", "Liniowy (średnia)", "Rozrzut (box plot)"])
             ogranicz_do_20 = st.checkbox("Ogranicz wykres do 20 najnowszych/najliczniejszych wyników")
 
-            # --- Filtrowanie do 20 wyników ---
             if ogranicz_do_20 and os_x == "data_dodania_str":
                 ostatnie_daty = konwersja["data_dodania"].drop_duplicates().sort_values(ascending=False).head(20)
                 df_do_wykresu = konwersja[konwersja["data_dodania"].isin(ostatnie_daty)]
